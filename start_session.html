@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Start Session</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="dashboard-body">
+
+<div class="sidebar">
+    <h2>Lecturer Panel</h2>
+    <ul>
+        <li><a href="lecturer.html">Dashboard</a></li>
+        <li><a href="start_session.html" class="active">Start Session</a></li>
+        <li><a href="report.html">Attendance Report</a></li>
+    </ul>
+    <button class="logout-btn" onclick="window.location.href='index.html'">Logout</button>
+</div>
+
+<div class="main-content">
+    <div class="dashboard-header">
+        <h1>Start Session</h1>
+        <p>Select a module and start the class session.</p>
+        <p id="lecturerName"></p>
+    </div>
+
+    <div class="form-card">
+        <form id="startSessionForm">
+            <label for="moduleSelect">Select Module</label>
+            <select id="moduleSelect" required>
+                <option value="">-- Select Module --</option>
+            </select>
+
+            <button type="submit" class="btn">Start Attendance</button>
+        </form>
+        
+        <div id="noModulesMessage" style="display: none; text-align: center; color: #F56565; margin-top: 20px;">
+            <p>No modules assigned to you yet. Please contact the administrator.</p>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const moduleSelect = document.getElementById('moduleSelect');
+    const startSessionForm = document.getElementById('startSessionForm');
+    const lecturerNameElement = document.getElementById('lecturerName');
+    const noModulesMessage = document.getElementById('noModulesMessage');
+    
+    // Get lecturer info from session
+    const lecturerName = sessionStorage.getItem('lecturerName');
+    if (lecturerName) {
+        lecturerNameElement.textContent = `Welcome, ${lecturerName}`;
+    } else {
+        // Redirect if not logged in
+        alert('Please log in first');
+        window.location.href = 'index.html';
+        return;
+    }
+    
+    // Load lecturer's assigned modules
+    function loadLecturerModules() {
+        try {
+            const lecturers = JSON.parse(localStorage.getItem('lecturers')) || [];
+            const currentLecturer = lecturers.find(l => l.fullName === lecturerName);
+            
+            moduleSelect.innerHTML = '<option value="">-- Select Module --</option>';
+            
+            if (currentLecturer && Array.isArray(currentLecturer.modulesAssigned) && currentLecturer.modulesAssigned.length > 0) {
+                currentLecturer.modulesAssigned.forEach(moduleName => {
+                    const option = document.createElement('option');
+                    option.value = moduleName;
+                    option.textContent = moduleName;
+                    moduleSelect.appendChild(option);
+                });
+                noModulesMessage.style.display = 'none';
+            } else {
+                noModulesMessage.style.display = 'block';
+                startSessionForm.querySelector('button').disabled = true;
+            }
+        } catch (error) {
+            console.error('Error loading modules:', error);
+            noModulesMessage.style.display = 'block';
+            noModulesMessage.querySelector('p').textContent = 'Error loading modules. Please try again.';
+        }
+    }
+    
+    // Handle form submission
+    startSessionForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const selectedModule = moduleSelect.value;
+        if (!selectedModule) {
+            alert('Please select a module to start the session.');
+            return;
+        }
+        
+        // Save selected module to session storage
+        sessionStorage.setItem('currentModule', selectedModule);
+        
+        // Check if there are students registered for this module
+        const students = JSON.parse(localStorage.getItem('students')) || [];
+        const moduleStudents = students.filter(s => 
+            Array.isArray(s.modules) && s.modules.includes(selectedModule) && s.face
+        );
+        
+        if (moduleStudents.length === 0) {
+            alert(`No students with registered faces found for module: ${selectedModule}. Please register students first.`);
+            return;
+        }
+        
+        // Redirect to face recognition page
+        window.location.href = 'face_recognition.html';
+    });
+    
+    // Initialize
+    loadLecturerModules();
+});
+</script>
+</body>
+</html>

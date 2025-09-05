@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Attendance Report</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .report-filters { 
+      background: rgba(255,255,255,0.05); 
+      padding: 20px; border-radius: 10px; 
+      margin-bottom: 20px; display: flex; gap: 15px; flex-wrap: wrap;
+      align-items: center;
+    }
+    .filter-group { display: flex; flex-direction: column; }
+    .filter-group label { margin-bottom: 5px; color: #E2E8F0; font-size: 14px; }
+    .filter-group select, .filter-group input { 
+      padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.3); 
+      background: rgba(255,255,255,0.05); color: #fff; min-width: 120px;
+    }
+    .btn-filter, .export-btn { 
+      padding: 8px 16px; border: none; border-radius: 6px; color: white; cursor: pointer;
+    }
+    .btn-filter { background: #7F9CF5; }
+    .export-btn { background: #48BB78; margin-left: 10px; }
+    .session-header { 
+      background: rgba(127,156,245,0.1); padding: 15px; border-radius: 8px; 
+      margin: 20px 0 10px 0; border-left: 4px solid #7F9CF5;
+    }
+    .session-info { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+    .attendance-summary { 
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
+      gap: 15px; margin: 20px 0; 
+    }
+    .summary-card { background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; text-align: center; }
+    .summary-number { font-size: 1.8em; font-weight: bold; }
+    .summary-label { color: #A0AEC0; font-size: 0.9em; }
+    .status-present { color: #48BB78; }
+    .status-absent { color: #F56565; }
+    .status-late { color: #ECC94B; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid rgba(255,255,255,0.1); padding: 8px; text-align: center; color: #E2E8F0; }
+    th { background: rgba(255,255,255,0.1); }
+    input[type="number"] { width: 60px; padding: 4px; border-radius: 4px; border: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+  <div class="sidebar">
+    <h2>Lecturer Panel</h2>
+    <ul>
+      <li><a href="lecturer.html">Dashboard</a></li>
+      <li><a href="face_recognition.html">Live Attendance</a></li>
+      <li><a href="report.html" class="active">Attendance Report</a></li>
+    </ul>
+    <button class="logout-btn" onclick="window.location.href='index.html'">Logout</button>
+  </div>
+
+  <div class="main-content">
+    <div class="dashboard-header">
+      <h1>Attendance Reports</h1>
+      <p id="lecturerInfo">Loading lecturer information...</p>
+    </div>
+
+    <!-- Filters -->
+    <div class="report-filters">
+      <div class="filter-group">
+        <label>Module</label>
+        <select id="moduleFilter">
+          <option value="">All Modules</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Date</label>
+        <input type="date" id="dateFilter">
+      </div>
+      <div class="filter-group">
+        <label>Status</label>
+        <select id="statusFilter">
+          <option value="">All Status</option>
+          <option value="Present">Present</option>
+          <option value="Absent">Absent</option>
+          <option value="Late">Late</option>
+        </select>
+      </div>
+      <button class="btn-filter" onclick="filterReports()">Filter</button>
+      <button class="export-btn" onclick="exportToCSV()">Export CSV</button>
+    </div>
+
+    <!-- Summary -->
+    <div class="attendance-summary" id="summaryStats" style="display: none;">
+      <div class="summary-card">
+        <div class="summary-number status-present" id="totalPresent">0</div>
+        <div class="summary-label">Total Present</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-number status-absent" id="totalAbsent">0</div>
+        <div class="summary-label">Total Absent</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-number" id="totalSessions">0</div>
+        <div class="summary-label">Total Sessions</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-number" id="avgAttendance">0%</div>
+        <div class="summary-label">Average Attendance</div>
+      </div>
+    </div>
+
+    <!-- Reports -->
+    <div id="reportsContainer">
+      <div class="card">
+        <p style="text-align: center; color: #A0AEC0;">No attendance sessions found. Start a session from the Live Attendance page.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const moduleFilter = document.getElementById('moduleFilter');
+    const dateFilter = document.getElementById('dateFilter');
+    const statusFilter = document.getElementById('statusFilter');
+    const reportsContainer = document.getElementById('reportsContainer');
+    const lecturerInfo = document.getElementById('lecturerInfo');
+    const summaryStats = document.getElementById('summaryStats');
+
+    let allReports = [];
+    let filteredReports = [];
+
+    document.addEventListener('DOMContentLoaded', function() {
+      const lecturerName = sessionStorage.getItem('lecturerName');
+      if (!lecturerName) {
+        alert('Please log in first');
+        window.location.href = 'index.html';
+        return;
+      }
+      lecturerInfo.textContent = `Reports for: ${lecturerName}`;
+      loadReports();
+      populateModuleFilter();
+    });
+
+    function loadReports() {
+      const lecturerName = sessionStorage.getItem('lecturerName');
+      const attendanceReport = JSON.parse(localStorage.getItem('attendanceReport')) || [];
+      allReports = attendanceReport.filter(session => session.lecturer === lecturerName);
+      filteredReports = [...allReports];
+      if (allReports.length === 0) {
+        reportsContainer.innerHTML = `<div class="card"><p style="text-align: center; color: #A0AEC0;">No attendance sessions found. <a href="face_recognition.html" style="color:#7F9CF5;">Start a session</a>.</p></div>`;
+        return;
+      }
+      displayReports();
+      updateSummaryStats();
+    }
+
+    function populateModuleFilter() {
+      const lecturers = JSON.parse(localStorage.getItem('lecturers')) || [];
+      const lecturerName = sessionStorage.getItem('lecturerName');
+      const currentLecturer = lecturers.find(l => l.fullName === lecturerName);
+      moduleFilter.innerHTML = '<option value="">All Modules</option>';
+      if (currentLecturer && Array.isArray(currentLecturer.modulesAssigned)) {
+        currentLecturer.modulesAssigned.forEach(module => {
+          const option = document.createElement('option');
+          option.value = module;
+          option.textContent = module;
+          moduleFilter.appendChild(option);
+        });
+      }
+    }
+
+    function displayReports() {
+      if (filteredReports.length === 0) {
+        reportsContainer.innerHTML = `<div class="card"><p style="text-align:center; color:#A0AEC0;">No sessions match the filters.</p></div>`;
+        summaryStats.style.display = 'none';
+        return;
+      }
+      let html = '';
+      const groupedReports = {};
+      filteredReports.forEach(session => {
+        const key = `${session.date}_${session.module}`;
+        if (!groupedReports[key]) groupedReports[key] = [];
+        groupedReports[key].push(session);
+      });
+
+      for (const [key, sessions] of Object.entries(groupedReports)) {
+        const [date, module] = key.split('_');
+        html += `<div class="session-header"><div class="session-info"><div><h3>${module} - ${date}</h3>
+                 <p style="color:#A0AEC0;margin:5px 0;">${sessions.length} session(s) | Total Students: ${sessions.reduce((sum,s)=>sum+s.students.length,0)}</p></div></div></div>`;
+        sessions.forEach(session => {
+          html += `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
+                   <h4>Session Started: ${session.startTime}</h4>
+                   <div style="color:#A0AEC0;">${session.students.length} student(s) recorded</div></div>
+                   <table><thead><tr><th>Student Name</th><th>Status</th><th>Mark (%)</th><th>Attendance Performance</th></tr></thead><tbody>`;
+          session.students.forEach((student, idx) => {
+            html += `<tr>
+                      <td>${student.name}</td>
+                      <td class="${student.status==="Present"?"status-present":student.status==="Absent"?"status-absent":"status-late"}">${student.status}</td>
+                      <td><input type="number" id="mark-${session.date}-${session.module}-${idx}" value="${student.mark||''}" placeholder="%" min="0" max="100" 
+                          onblur="saveStudentMark('${session.date}','${session.module}',${idx}, this.value)"></td>
+                      <td>${calculateAttendancePerformance(student.name, session.module)}%</td>
+                    </tr>`;
+          });
+          html += `</tbody></table></div>`;
+        });
+      }
+      reportsContainer.innerHTML = html;
+      summaryStats.style.display = 'grid';
+    }
+
+    function saveStudentMark(date, module, studentIndex, mark) {
+      let attendanceReport = JSON.parse(localStorage.getItem("attendanceReport")) || [];
+      let session = attendanceReport.find(s => s.date === date && s.module === module);
+      if (!session) return;
+      let finalMark = Math.max(0, Math.min(100, parseInt(mark) || 0));
+      session.students[studentIndex].mark = finalMark;
+      localStorage.setItem("attendanceReport", JSON.stringify(attendanceReport));
+      alert(`✅ Mark saved for ${session.students[studentIndex].name}: ${finalMark}%`);
+    }
+
+    function calculateAttendancePerformance(studentName, module) {
+      let attendanceReport = JSON.parse(localStorage.getItem("attendanceReport")) || [];
+      let sessions = attendanceReport.filter(s => s.module === module);
+      if (sessions.length === 0) return 0;
+      let attended = 0, total = 0;
+      sessions.forEach(s => {
+        const student = s.students.find(st => st.name === studentName);
+        if (student) {
+          total++;
+          if (student.status === "Present") attended++;
+        }
+      });
+      return ((attended/total)*100).toFixed(0);
+    }
+
+    function filterReports() {
+      const moduleVal = moduleFilter.value;
+      const dateVal = dateFilter.value;
+      const statusVal = statusFilter.value;
+      filteredReports = allReports.filter(session => {
+        let ok = true;
+        if (moduleVal && session.module !== moduleVal) ok = false;
+        if (dateVal && session.date !== dateVal) ok = false;
+        if (statusVal) {
+          let hasStatus = session.students.some(st => st.status === statusVal);
+          if (!hasStatus) ok = false;
+        }
+        return ok;
+      });
+      displayReports();
+      updateSummaryStats();
+    }
+
+    function updateSummaryStats() {
+      let present = 0, absent = 0, total = 0;
+      filteredReports.forEach(s => {
+        s.students.forEach(st => {
+          if (st.status === "Present") present++;
+          if (st.status === "Absent") absent++;
+          total++;
+        });
+      });
+      document.getElementById('totalPresent').textContent = present;
+      document.getElementById('totalAbsent').textContent = absent;
+      document.getElementById('totalSessions').textContent = filteredReports.length;
+      document.getElementById('avgAttendance').textContent = total>0 ? ((present/total)*100).toFixed(0)+'%' : '0%';
+    }
+
+    function exportToCSV() {
+      if (filteredReports.length === 0) {
+        alert("No data to export.");
+        return;
+      }
+      let csv = "Module,Date,Student,Status,Mark,Attendance Performance\n";
+      filteredReports.forEach(s => {
+        s.students.forEach(st => {
+          csv += `${s.module},${s.date},${st.name},${st.status},${st.mark||''},${calculateAttendancePerformance(st.name,s.module)}%\n`;
+        });
+      });
+      let blob = new Blob([csv], { type: "text/csv" });
+      let link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "attendance_report.csv";
+      link.click();
+    }
+  </script>
+</body>
+</html>

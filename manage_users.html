@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manage Users</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="dashboard-wrapper">
+    
+    <div class="sidebar">
+        <div class="sidebar-title">Admin Panel</div>
+        <ul class="sidebar-menu">
+            <li><a href="admin.html">Dashboard</a></li>
+            <li><a href="manage_users.html" class="active">Manage Users</a></li>
+            <li><a href="modules.html">Modules</a></li>
+            <li><a href="face_register.html">Register Student</a></li>
+        </ul>
+    </div>
+
+    <div class="dashboard-content">
+        <a href="index.html" class="btn-logout">Logout</a>
+        <div class="dashboard-header">
+            <h1>Manage Users</h1>
+        </div>
+
+        <!-- Lecturers Section -->
+        <section class="users-section">
+            <h2>Lecturers</h2>
+            <div class="card">
+                <table id="lecturersTable" class="users-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Modules Assigned</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Students Section -->
+        <section class="users-section">
+            <h2>Students</h2>
+            <div class="card">
+                <table id="studentsTable" class="users-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Student No.</th>
+                            <th>Email</th>
+                            <th>Modules</th>
+                            <th>Lecturer</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+</div>
+
+<!-- Modal for Assigning Modules -->
+<div id="assignModal" class="modal">
+    <div class="modal-content">
+        <h3>Assign Modules</h3>
+        <div id="moduleCheckboxes" class="module-checkbox-container"></div>
+        <div class="modal-buttons">
+            <button id="confirmAssign" class="btn">Save</button>
+            <button id="cancelAssign" class="btn">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- App JS -->
+<script src="app.js"></script>
+
+</body>
+</html>

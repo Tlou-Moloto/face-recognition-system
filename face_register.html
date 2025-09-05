@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Register Student</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="dashboard-body">
+
+<div class="sidebar">
+    <h2>Admin Panel</h2>
+    <ul>
+        <li><a href="admin.html">Dashboard</a></li>
+        <li><a href="manage_users.html" class="active">Manage Users</a></li>
+        <li><a href="modules.html">Create Modules</a></li>
+    </ul>
+    <button class="logout-btn" onclick="window.location.href='index.html'">Logout</button>
+</div>
+
+<div class="main-content">
+    <div class="dashboard-header">
+        <h1>Register Student</h1>
+    </div>
+
+    <div class="form-card">
+        <form id="studentForm">
+            <label for="studentName">Full Name</label>
+            <input type="text" id="studentName" placeholder="Enter full name" required>
+
+            <label for="studentNo">Student Number</label>
+            <input type="text" id="studentNo" placeholder="Enter student number" required>
+
+            <label for="studentEmail">Email</label>
+            <input type="email" id="studentEmail" placeholder="Enter email" required>
+
+            <label for="studentModule">Module</label>
+            <select id="studentModule" required>
+                <option value="">Select Module</option>
+            </select>
+
+            <button type="button" class="btn" onclick="registerFace()">Register Face</button>
+        </form>
+    </div>
+</div>
+
+<script>
+const modules = JSON.parse(localStorage.getItem("modules")) || [
+  { name: "Math 101" },
+  { name: "ICT Fundamentals" }
+];
+
+const moduleSelect = document.getElementById("studentModule");
+modules.forEach(mod => {
+  const option = document.createElement("option");
+  option.value = mod.name;
+  option.textContent = mod.name;
+  moduleSelect.appendChild(option);
+});
+
+function registerFace() {
+  const name = document.getElementById('studentName').value.trim();
+  const studentNo = document.getElementById('studentNo').value.trim();
+  const email = document.getElementById('studentEmail').value.trim();
+  const module = document.getElementById('studentModule').value;
+
+  if (!name || !studentNo || !email || !module) {
+    alert("Please fill in all fields!");
+    return;
+  }
+
+  // Save student info in localStorage for face capture
+  localStorage.setItem('currentStudent', JSON.stringify({ name, studentNo, email, module }));
+  window.location.href = "register.html"; // go to face capture page
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Capture Student Face</title>
+<link rel="stylesheet" href="style.css">
+<style>
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f5f6fa;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+}
+.capture-card {
+  background-color: #fff;
+  padding: 30px;
+  border-radius: 15px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+  text-align: center;
+  max-width: 500px;
+  width: 100%;
+}
+h1 { margin-bottom: 20px; font-size: 24px; color: #333; }
+video { width: 100%; border-radius: 10px; margin-bottom: 20px; border: 2px solid #0077cc; }
+canvas { position: absolute; top: 0; left: 0; }
+button {
+  padding: 10px 20px;
+  margin: 5px;
+  font-size: 16px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+}
+#captureFace { background-color: #28a745; color: #fff; }
+#captureFace:hover { background-color: #218838; }
+#retryFace { background-color: #ffc107; color: #fff; }
+#retryFace:hover { background-color: #e0a800; }
+</style>
+</head>
+<body>
+
+<div class="capture-card">
+  <h1>📸 Capture Student Face</h1>
+  <video id="videoElement" autoplay playsinline></video>
+  <canvas id="overlay" width="500" height="400"></canvas>
+  <div>
+    <button id="captureFace">Capture Face</button>
+    <button id="retryFace" style="display:none;">Retry</button>
+    <button id="backToRegister">Back to Registration</button>
+  </div>
+</div>
+
+<script src="js/face-api.min.js"></script>
+<script>
+const video = document.getElementById('videoElement');
+const overlay = document.getElementById('overlay');
+const ctx = overlay.getContext('2d');
+let stream;
+
+// --- Get student info ---
+const studentData = JSON.parse(localStorage.getItem('currentStudent'));
+if (!studentData || !studentData.name || !studentData.studentNo || !studentData.email || !studentData.module) {
+    alert("Student info missing! Please fill the registration form first.");
+    window.location.href = "face_register.html";
+}
+
+// --- Load models ---
+async function loadModels() {
+    await faceapi.nets.tinyFaceDetector.loadFromUri('models');
+    await faceapi.nets.faceLandmark68Net.loadFromUri('models');
+    await faceapi.nets.faceRecognitionNet.loadFromUri('models');
+    startCamera();
+}
+
+// --- Start camera ---
+async function startCamera() {
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        video.addEventListener('play', onPlay);
+    } catch (err) {
+        alert("Camera access denied. Please allow camera and reload the page.");
+    }
+}
+
+// --- Live detection ---
+async function onPlay() {
+    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.4 });
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+    const result = await faceapi.detectSingleFace(video, options).withFaceLandmarks();
+    if (result) {
+        const { x, y, width, height } = result.detection.box;
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+        ctx.strokeStyle = 'green';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, width, height);
+    } else {
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+    }
+    requestAnimationFrame(onPlay);
+}
+
+// --- Capture face and save descriptor ---
+document.getElementById('captureFace').addEventListener('click', async () => {
+    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.4 });
+    const detection = await faceapi.detectSingleFace(video, options).withFaceLandmarks().withFaceDescriptor();
+
+    if (!detection) {
+        alert("❌ No face detected. Ensure face is fully visible and well-lit.");
+        return;
+    }
+
+    const { x, y, width, height } = detection.detection.box;
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = width;
+    tempCanvas.height = height;
+    tempCanvas.getContext('2d').drawImage(video, x, y, width, height, 0, 0, width, height);
+    const imageData = tempCanvas.toDataURL('image/png');
+
+    // Save student + face + descriptor
+    const students = JSON.parse(localStorage.getItem('students')) || [];
+    const existingIndex = students.findIndex(s => s.studentNo === studentData.studentNo);
+    const studentObj = {
+        name: studentData.name,
+        studentNo: studentData.studentNo,
+        email: studentData.email,
+        modules: [studentData.module],
+        face: imageData,
+        descriptor: Array.from(detection.descriptor)
+    };
+
+    if (existingIndex !== -1) students[existingIndex] = studentObj;
+    else students.push(studentObj);
+
+    localStorage.setItem('students', JSON.stringify(students));
+    localStorage.removeItem('currentStudent');
+
+    alert(`✅ ${studentData.name}'s face captured successfully!`);
+    window.location.href = "manage_users.html";
+});
+
+// --- Retry ---
+document.getElementById('retryFace').addEventListener('click', () => {
+    document.getElementById('captureFace').style.display = 'inline-block';
+    document.getElementById('retryFace').style.display = 'none';
+});
+
+// --- Back ---
+document.getElementById('backToRegister').addEventListener('click', () => {
+    window.location.href = "face_register.html";
+});
+
+// --- Stop camera on leave ---
+window.addEventListener('beforeunload', () => {
+    if (stream) stream.getTracks().forEach(track => track.stop());
+});
+
+loadModels();
+</script>
+</body>
+</html>
