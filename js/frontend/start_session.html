@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Start Session</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="dashboard-body">
+
+<div class="sidebar">
+    <h2>Lecturer Panel</h2>
+    <ul>
+        <li><a href="lecturer.html">Dashboard</a></li>
+        <li><a href="start_session.html" class="active">Start Session</a></li>
+        <li><a href="report.html">Attendance Report</a></li>
+    </ul>
+    <button class="logout-btn" onclick="window.location.href='index.html'">Logout</button>
+</div>
+
+<div class="main-content">
+    <div class="dashboard-header">
+        <h1>Start Session</h1>
+        <p>Select a module and start the class session.</p>
+        <p id="lecturerName"></p>
+    </div>
+
+    <div class="form-card">
+        <div id="loadingMessage" style="text-align: center; color: #7F9CF5; margin-bottom: 20px;">
+            <p>Loading your assigned modules...</p>
+        </div>
+        
+        <form id="startSessionForm" style="display: none;">
+            <label for="moduleSelect">Select Module</label>
+            <select id="moduleSelect" required>
+                <option value="">-- Select Module --</option>
+            </select>
+
+            <button type="submit" class="btn">Start Attendance</button>
+        </form>
+        
+        <div id="noModulesMessage" style="display: none; text-align: center; color: #F56565; margin-top: 20px;">
+            <p>No modules assigned to you yet. Please contact the administrator.</p>
+        </div>
+        
+        <div id="errorMessage" style="display: none; text-align: center; color: #F56565; margin-top: 20px;">
+            <p>Error loading modules. Please try again.</p>
+            <button onclick="loadLecturerModules()" class="btn" style="margin-top: 10px; width: auto; padding: 8px 16px;">Retry</button>
+        </div>
+        
+        <!-- Debug information (hidden by default) -->
+        <div id="debugInfo" style="display: none; background: rgba(26,32,44,0.5); padding: 10px; margin-top: 20px; border-radius: 8px; font-family: monospace; font-size: 12px;">
+            <strong>Debug Information:</strong>
+            <div id="debugContent"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+const API_BASE = "http://localhost:3000/api";
+let currentLecturerData = null;
+
+document.addEventListener('DOMContentLoaded', async function() {
+    const moduleSelect = document.getElementById('moduleSelect');
+    const startSessionForm = document.getElementById('startSessionForm');
+    const lecturerNameElement = document.getElementById('lecturerName');
+    const noModulesMessage = document.getElementById('noModulesMessage');
+    const loadingMessage = document.getElementById('loadingMessage');
+    const errorMessage = document.getElementById('errorMessage');
+    const debugInfo = document.getElementById('debugInfo');
+    const debugContent = document.getElementById('debugContent');
+    
+    const lecturerName = sessionStorage.getItem('lecturerName');
+    
+    // Debug function
+    function addDebugInfo(message, data = null) {
+        console.log(message, data);
+        const timestamp = new Date().toLocaleTimeString();
+        debugContent.innerHTML += `<div>${timestamp}: ${message}</div>`;
+        if (data) {
+            debugContent.innerHTML += `<div style="margin-left: 20px; color: #A0AEC0;">${JSON.stringify(data, null, 2)}</div>`;
+        }
+        // Show debug in development (uncomment for debugging)
+        // debugInfo.style.display = 'block';
+    }
+    
+    if (!lecturerName) {
+        alert('Please log in first');
+        window.location.href = 'index.html';
+        return;
+    }
+    
+    lecturerNameElement.textContent = `Welcome, ${lecturerName}`;
+    addDebugInfo('Logged in lecturer:', lecturerName);
+
+    // Fetch lecturer modules with improved error handling
+    async function loadLecturerModules() {
+        try {
+            loadingMessage.style.display = 'block';
+            startSessionForm.style.display = 'none';
+            noModulesMessage.style.display = 'none';
+            errorMessage.style.display = 'none';
+            
+            addDebugInfo('Fetching lecturers from API...');
+            
+            const response = await fetch(`${API_BASE}/lecturers`);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const lecturers = await response.json();
+            addDebugInfo('All lecturers received:', lecturers);
+            
+            // Find current lecturer by matching names (try both full_name and fullName)
+            const currentLecturer = lecturers.find(l => {
+                const matchFullName = l.full_name === lecturerName;
+                const matchCamelCase = l.fullName === lecturerName;
+                addDebugInfo(`Checking lecturer: ${l.full_name || l.fullName}`, {
+                    stored_name: lecturerName,
+                    db_full_name: l.full_name,
+                    db_fullName: l.fullName,
+                    match_full_name: matchFullName,
+                    match_camelCase: matchCamelCase
+                });
+                return matchFullName || matchCamelCase;
+            });
+            
+            if (!currentLecturer) {
+                addDebugInfo('Current lecturer not found in database');
+                throw new Error(`Lecturer "${lecturerName}" not found in database`);
+            }
+            
+            currentLecturerData = currentLecturer;
+            addDebugInfo('Current lecturer found:', currentLecturer);
+            
+            // Clear existing options
+            moduleSelect.innerHTML = '<option value="">-- Select Module --</option>';
+            
+            // Get assigned modules - try multiple possible field names
+            let assignedModules = [];
+            
+            if (currentLecturer.modules_assigned && Array.isArray(currentLecturer.modules_assigned)) {
+                assignedModules = currentLecturer.modules_assigned;
+                addDebugInfo('Using modules_assigned field:', assignedModules);
+            } else if (currentLecturer.modules && Array.isArray(currentLecturer.modules)) {
+                assignedModules = currentLecturer.modules;
+                addDebugInfo('Using modules field:', assignedModules);
+            } else {
+                addDebugInfo('No modules found in any field', {
+                    modules_assigned: currentLecturer.modules_assigned,
+                    modules: currentLecturer.modules
+                });
+            }
+            
+            if (assignedModules.length > 0) {
+                assignedModules.forEach(moduleName => {
+                    if (moduleName && moduleName.trim()) {
+                        const option = document.createElement('option');
+                        option.value = moduleName.trim();
+                        option.textContent = moduleName.trim();
+                        moduleSelect.appendChild(option);
+                        addDebugInfo(`Added module option: ${moduleName}`);
+                    }
+                });
+                
+                loadingMessage.style.display = 'none';
+                startSessionForm.style.display = 'block';
+                addDebugInfo('Modules loaded successfully');
+                
+            } else {
+                loadingMessage.style.display = 'none';
+                noModulesMessage.style.display = 'block';
+                addDebugInfo('No modules assigned to lecturer');
+            }
+            
+        } catch (error) {
+            console.error('Error loading modules:', error);
+            addDebugInfo('Error loading modules:', error.message);
+            
+            loadingMessage.style.display = 'none';
+            errorMessage.style.display = 'block';
+            
+            // Show debug info when there's an error
+            debugInfo.style.display = 'block';
+        }
+    }
+
+    // Make loadLecturerModules globally accessible for retry button
+    window.loadLecturerModules = loadLecturerModules;
+
+    // Handle form submission
+    startSessionForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const selectedModule = moduleSelect.value;
+        
+        if (!selectedModule) {
+            alert('Please select a module to start the session.');
+            return;
+        }
+        
+        addDebugInfo('Starting session for module:', selectedModule);
+        sessionStorage.setItem('currentModule', selectedModule);
+
+        // Verify students exist for the selected module
+        try {
+            addDebugInfo('Fetching students for module validation...');
+            const response = await fetch(`${API_BASE}/students`);
+            
+            if (!response.ok) {
+                throw new Error(`Failed to fetch students: ${response.status}`);
+            }
+            
+            const students = await response.json();
+            addDebugInfo('All students received:', students.length);
+            
+            const moduleStudents = students.filter(student => {
+                // Check if student is enrolled in the selected module
+                const hasModule = Array.isArray(student.modules) && student.modules.includes(selectedModule);
+                // Check if student has face data (either face image or descriptor)
+                const hasFaceData = student.face || student.descriptor;
+                
+                addDebugInfo(`Student ${student.name}:`, {
+                    modules: student.modules,
+                    hasModule: hasModule,
+                    hasFace: !!student.face,
+                    hasDescriptor: !!student.descriptor,
+                    hasFaceData: hasFaceData
+                });
+                
+                return hasModule && hasFaceData;
+            });
+            
+            addDebugInfo(`Students found for module ${selectedModule}:`, moduleStudents.length);
+            
+            if (moduleStudents.length === 0) {
+                alert(`No students with registered faces found for module: ${selectedModule}. Please ensure students are registered with face recognition data first.`);
+                return;
+            }
+            
+            addDebugInfo('Session starting - redirecting to face recognition...');
+            window.location.href = 'face_recognition.html';
+            
+        } catch (error) {
+            console.error('Error fetching students:', error);
+            addDebugInfo('Error fetching students:', error.message);
+            alert('Failed to validate student data. Please try again.');
+            
+            // Show debug info when there's an error
+            debugInfo.style.display = 'block';
+        }
+    });
+
+    // Load modules on page load
+    await loadLecturerModules();
+});
+</script>
+</body>
+</html>

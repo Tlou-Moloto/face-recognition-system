@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Student Registration - Face Recognition System</title>
+<link rel="stylesheet" href="style.css">
+<style>
+.registration-container {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.step {
+  display: none;
+  animation: fadeInUp 0.6s ease forwards;
+}
+
+.step.active {
+  display: block;
+}
+
+.video-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  margin: 20px 0;
+}
+
+.camera-box {
+  position: relative;
+  border: 3px solid #7F9CF5;
+  border-radius: 20px;
+  overflow: hidden;
+  margin-bottom: 20px;
+  box-shadow: 0 8px 32px rgba(127,156,245,.3);
+}
+
+#videoElement {
+  width: 640px;
+  height: 480px;
+  object-fit: cover;
+  display: block;
+  background: #000;
+}
+
+#overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.status {
+  padding: 15px;
+  margin: 15px 0;
+  border-radius: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.status.loading {
+  background: rgba(127,156,245,0.2);
+  color: #7F9CF5;
+  border: 1px solid rgba(127,156,245,0.3);
+}
+
+.status.success {
+  background: rgba(72,187,120,0.2);
+  color: #48BB78;
+  border: 1px solid rgba(72,187,120,0.3);
+}
+
+.status.error {
+  background: rgba(245,101,101,0.2);
+  color: #F56565;
+  border: 1px solid rgba(245,101,101,0.3);
+}
+
+.navigation {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.btn-capture {
+  background: linear-gradient(135deg, #48BB78, #68D391);
+  padding: 12px 24px;
+  width: auto;
+}
+
+.btn-back {
+  background: rgba(127,156,245,0.3);
+  padding: 12px 24px;
+  width: auto;
+}
+
+.btn-next {
+  background: linear-gradient(135deg, #5A67D8, #7F9CF5);
+  padding: 12px 24px;
+  width: auto;
+}
+
+.debug-info {
+  background: rgba(26,32,44,0.5);
+  padding: 10px;
+  margin: 10px 0;
+  border-radius: 8px;
+  font-family: monospace;
+  font-size: 12px;
+  border: 1px solid rgba(255,255,255,0.2);
+  color: #E2E8F0;
+  display: none;
+}
+
+.step h2 {
+  color: #E2E8F0;
+  margin-bottom: 20px;
+  text-align: center;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  color: #E2E8F0;
+  font-weight: 500;
+}
+
+.success-content {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.success-content h2 {
+  color: #48BB78;
+  margin-bottom: 20px;
+}
+
+.success-message {
+  background: rgba(72,187,120,0.2);
+  color: #48BB78;
+  padding: 20px;
+  border-radius: 12px;
+  margin-bottom: 30px;
+  border: 1px solid rgba(72,187,120,0.3);
+  font-weight: 600;
+}
+
+/* Mobile responsiveness */
+@media(max-width: 768px) {
+  #videoElement {
+    width: 100%;
+    max-width: 500px;
+    height: auto;
+  }
+  
+  .navigation {
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .navigation button {
+    width: 200px;
+    margin: 5px 0;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <h2>Registration</h2>
+  <ul>
+    <li><a href="admin.html">Admin Dashboard</a></li>
+    <li><a href="manage_users.html">Manage Users</a></li>
+    <li><a class="active" href="register.html">Register Student</a></li>
+    <li><a href="modules.html">Create Module</a></li>
+  </ul>
+  <button class="logout-btn" onclick="window.location.href='index.html'">Logout</button>
+</div>
+
+<div class="main-content">
+  <div class="dashboard-header">
+    <h1>Student Registration System</h1>
+    <p>Complete student registration with face recognition setup</p>
+  </div>
+
+  <div class="registration-container">
+    <!-- Step 1: Student Information -->
+    <div id="step1" class="step active">
+      <div class="card">
+        <h2>Step 1: Student Information</h2>
+        <form id="studentForm">
+          <div class="form-group">
+            <label for="studentName">Full Name:</label>
+            <input type="text" id="studentName" required placeholder="Enter student's full name">
+          </div>
+          
+          <div class="form-group">
+            <label for="studentNo">Student Number:</label>
+            <input type="text" id="studentNo" required placeholder="Enter student number">
+          </div>
+          
+          <div class="form-group">
+            <label for="studentEmail">Email Address:</label>
+            <input type="email" id="studentEmail" required placeholder="Enter email address">
+          </div>
+          
+          <div class="form-group">
+            <label for="studentModule">Select Module:</label>
+            <select id="studentModule" required>
+              <option value="">Loading modules...</option>
+            </select>
+          </div>
+          
+          <div class="navigation">
+            <button type="submit" class="btn btn-next">Register & Continue to Face Capture</button>
+          </div>
+        </form>
+        
+        <div id="registrationStatus" class="status" style="display:none;"></div>
+      </div>
+    </div>
+
+    <!-- Step 2: Face Capture -->
+    <div id="step2" class="step">
+      <div class="card">
+        <h2>Step 2: Face Recognition Setup</h2>
+        <div id="faceStatus" class="status loading">Initializing face recognition system...</div>
+        
+        <div class="video-container">
+          <div class="camera-box">
+            <video id="videoElement" autoplay playsinline muted></video>
+            <canvas id="overlay"></canvas>
+          </div>
+        </div>
+        
+        <div class="navigation">
+          <button id="captureBtn" class="btn btn-capture" disabled>Capture Face</button>
+          <button id="backToStep1" class="btn btn-back">Back to Registration</button>
+        </div>
+        
+        <div id="debugInfo" class="debug-info"></div>
+      </div>
+    </div>
+
+    <!-- Step 3: Success -->
+    <div id="step3" class="step">
+      <div class="card">
+        <div class="success-content">
+          <h2>Registration Complete!</h2>
+          <div class="success-message">
+            Student has been successfully registered with face recognition data.
+          </div>
+          <div class="navigation">
+            <button onclick="startOver()" class="btn btn-next">Register Another Student</button>
+            <button onclick="window.location.href='manage_users.html'" class="btn btn-back">Go to User Management</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/dist/face-api.min.js"></script>
+<script>
+const API_BASE = "http://localhost:3000/api";
+
+let currentStudent = null;
+let modelsLoaded = false;
+let stream = null;
+
+// DOM Elements
+const step1 = document.getElementById('step1');
+const step2 = document.getElementById('step2');
+const step3 = document.getElementById('step3');
+const studentForm = document.getElementById('studentForm');
+const registrationStatus = document.getElementById('registrationStatus');
+const faceStatus = document.getElementById('faceStatus');
+const video = document.getElementById('videoElement');
+const overlay = document.getElementById('overlay');
+const ctx = overlay.getContext('2d');
+const captureBtn = document.getElementById('captureBtn');
+const debugInfo = document.getElementById('debugInfo');
+const moduleSelect = document.getElementById('studentModule');
+
+// Utility Functions
+function showStep(stepNumber) {
+  document.querySelectorAll('.step').forEach(step => step.classList.remove('active'));
+  document.getElementById(`step${stepNumber}`).classList.add('active');
+}
+
+function updateStatus(element, message, type = 'loading') {
+  element.className = `status ${type}`;
+  element.textContent = message;
+  element.style.display = 'block';
+}
+
+function debugLog(message, data = null) {
+  console.log(message, data);
+  if (debugInfo) {
+    debugInfo.style.display = 'block';
+    debugInfo.innerHTML += `<div>${new Date().toLocaleTimeString()}: ${message}</div>`;
+    if (data) {
+      debugInfo.innerHTML += `<div style="margin-left: 20px; color: #A0AEC0;">${JSON.stringify(data, null, 2)}</div>`;
+    }
+  }
+}
+
+// Load modules from your API
+async function loadModules() {
+  try {
+    debugLog('Loading modules from API...');
+    const response = await fetch(`${API_BASE}/modules`);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch modules: ${response.status}`);
+    }
+    
+    const modules = await response.json();
+    debugLog('Modules loaded:', modules);
+    
+    // Clear existing options
+    moduleSelect.innerHTML = '<option value="">Select a module</option>';
+    
+    // Populate module options
+    modules.forEach(module => {
+      const option = document.createElement('option');
+      option.value = module.name;
+      option.textContent = `${module.name}${module.code ? ` (${module.code})` : ''}`;
+      moduleSelect.appendChild(option);
+    });
+    
+    if (modules.length === 0) {
+      moduleSelect.innerHTML = '<option value="">No modules available</option>';
+    }
+    
+  } catch (error) {
+    console.error('Error loading modules:', error);
+    moduleSelect.innerHTML = '<option value="">Error loading modules</option>';
+    debugLog('Module loading error:', error);
+  }
+}
+
+// Step 1: Student Registration
+studentForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  
+  const studentData = {
+    name: document.getElementById('studentName').value.trim(),
+    studentNo: document.getElementById('studentNo').value.trim(),
+    email: document.getElementById('studentEmail').value.trim(),
+    modules: [document.getElementById('studentModule').value]
+  };
+  
+  if (!studentData.name || !studentData.studentNo || !studentData.email || !studentData.modules[0]) {
+    updateStatus(registrationStatus, 'Please fill in all fields', 'error');
+    return;
+  }
+  
+  debugLog('Registering student:', studentData);
+  updateStatus(registrationStatus, 'Registering student...', 'loading');
+  
+  try {
+    const response = await fetch(`${API_BASE}/students`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(studentData)
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Registration failed: ${response.status} - ${errorText}`);
+    }
+    
+    currentStudent = await response.json();
+    debugLog('Student registered successfully:', currentStudent);
+    
+    updateStatus(registrationStatus, 'Student registered! Moving to face capture...', 'success');
+    
+    setTimeout(() => {
+      showStep(2);
+      initializeFaceCapture();
+    }, 1500);
+    
+  } catch (error) {
+    debugLog('Registration error:', error);
+    updateStatus(registrationStatus, `Registration failed: ${error.message}`, 'error');
+  }
+});
+
+// Step 2: Face Capture Initialization
+async function initializeFaceCapture() {
+  if (!currentStudent) {
+    updateStatus(faceStatus, 'No student data available. Please register first.', 'error');
+    return;
+  }
+  
+  debugLog('Starting face capture for student:', currentStudent);
+  
+  try {
+    updateStatus(faceStatus, 'Loading face recognition models...', 'loading');
+    await loadFaceModels();
+    
+    updateStatus(faceStatus, 'Starting camera...', 'loading');
+    await startCamera();
+    
+    updateStatus(faceStatus, 'Ready! Position your face in the frame and click Capture Face.', 'success');
+    captureBtn.disabled = false;
+    
+  } catch (error) {
+    debugLog('Face capture initialization error:', error);
+    updateStatus(faceStatus, `Initialization failed: ${error.message}`, 'error');
+  }
+}
+
+async function loadFaceModels() {
+  if (typeof faceapi === 'undefined') {
+    throw new Error('Face-API library not loaded');
+  }
+  
+  try {
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights'),
+      faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights'),
+      faceapi.nets.faceRecognitionNet.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights')
+    ]);
+    
+    modelsLoaded = true;
+    debugLog('Face-API models loaded successfully');
+  } catch (error) {
+    debugLog('Model loading error:', error);
+    throw new Error('Failed to load face recognition models');
+  }
+}
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { 
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        facingMode: 'user'
+      }
+    });
+    
+    video.srcObject = stream;
+    
+    return new Promise((resolve) => {
+      video.addEventListener('loadedmetadata', () => {
+        overlay.width = video.videoWidth;
+        overlay.height = video.videoHeight;
+        video.addEventListener('play', detectFaces);
+        resolve();
+      });
+    });
+  } catch (error) {
+    debugLog('Camera error:', error);
+    throw new Error('Failed to access camera. Please ensure camera permissions are granted.');
+  }
+}
+
+async function detectFaces() {
+  if (!modelsLoaded || video.paused || video.ended) {
+    return requestAnimationFrame(detectFaces);
+  }
+  
+  try {
+    const detection = await faceapi.detectSingleFace(video, 
+      new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.4 })
+    ).withFaceLandmarks();
+    
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    
+    if (detection) {
+      const { x, y, width, height } = detection.detection.box;
+      ctx.strokeStyle = '#48BB78';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x, y, width, height);
+      
+      if (detection.landmarks) {
+        ctx.fillStyle = '#48BB78';
+        detection.landmarks.positions.forEach(point => {
+          ctx.fillRect(point.x - 1, point.y - 1, 2, 2);
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Face detection error:', error);
+  }
+  
+  requestAnimationFrame(detectFaces);
+}
+
+// Face Capture
+captureBtn.addEventListener('click', async () => {
+  if (!modelsLoaded || !currentStudent) {
+    alert('System not ready. Please wait or refresh the page.');
+    return;
+  }
+  
+  try {
+    updateStatus(faceStatus, 'Capturing face...', 'loading');
+    captureBtn.disabled = true;
+    
+    const detection = await faceapi.detectSingleFace(video,
+      new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 })
+    ).withFaceLandmarks().withFaceDescriptor();
+    
+    if (!detection) {
+      updateStatus(faceStatus, 'No face detected. Please position your face clearly and try again.', 'error');
+      captureBtn.disabled = false;
+      return;
+    }
+    
+    // Create face image
+    const { x, y, width, height } = detection.detection.box;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext('2d').drawImage(video, x, y, width, height, 0, 0, width, height);
+    const faceImage = canvas.toDataURL('image/png');
+    
+    const descriptor = Array.from(detection.descriptor);
+    
+    debugLog('Face captured, updating database...', { 
+      studentId: currentStudent.id, 
+      descriptorLength: descriptor.length 
+    });
+    
+    updateStatus(faceStatus, 'Saving face data...', 'loading');
+    
+    // Update student with face data
+    const updateResponse = await fetch(`${API_BASE}/students/${currentStudent.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: currentStudent.name,
+        studentNo: currentStudent.studentNo,
+        email: currentStudent.email,
+        modules: currentStudent.modules,
+        face: faceImage,
+        descriptor: descriptor
+      })
+    });
+    
+    if (!updateResponse.ok) {
+      throw new Error(`Failed to save face data: ${updateResponse.status}`);
+    }
+    
+    debugLog('Face data saved successfully');
+    updateStatus(faceStatus, 'Face captured successfully!', 'success');
+    
+    // Stop camera
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+    }
+    
+    setTimeout(() => showStep(3), 2000);
+    
+  } catch (error) {
+    debugLog('Face capture error:', error);
+    updateStatus(faceStatus, `Face capture failed: ${error.message}`, 'error');
+    captureBtn.disabled = false;
+  }
+});
+
+// Navigation
+document.getElementById('backToStep1').addEventListener('click', () => {
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+  }
+  showStep(1);
+  currentStudent = null;
+  captureBtn.disabled = true;
+});
+
+function startOver() {
+  currentStudent = null;
+  modelsLoaded = false;
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+  }
+  document.getElementById('studentForm').reset();
+  registrationStatus.style.display = 'none';
+  debugInfo.innerHTML = '';
+  debugInfo.style.display = 'none';
+  captureBtn.disabled = true;
+  showStep(1);
+  loadModules(); // Reload modules
+}
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+  }
+});
+
+// Initialize page
+document.addEventListener('DOMContentLoaded', async () => {
+  console.log('Initializing student registration system...');
+  await loadModules();
+});
+</script>
+
+</body>
+</html>

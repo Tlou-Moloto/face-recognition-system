@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Face Recognition - Attendance</title>
+<link rel="stylesheet" href="style.css" />
+<style>
+  .camera-container { display:flex; justify-content:center; align-items:center; flex-direction:column; min-height:60vh; padding:20px; }
+  .camera-box { position:relative; border:3px solid #7F9CF5; border-radius:20px; overflow:hidden; margin-bottom:30px; box-shadow:0 8px 32px rgba(127,156,245,.3); }
+  #videoElement { width:640px; height:480px; object-fit:cover; display:block; background:#000; }
+  #canvas { position:absolute; top:0; left:0; pointer-events: none; }
+  .status-indicator { padding:12px 16px; border-radius:10px; font-weight:600; margin:12px 0; text-align:center; }
+  .status-scanning { background:rgba(127,156,245,.2); color:#7F9CF5; border:1px solid rgba(127,156,245,.3); }
+  .status-success { background:rgba(72,187,120,.2); color:#48BB78; border:1px solid rgba(72,187,120,.3); }
+  .status-error { background:rgba(245,101,101,.2); color:#F56565; border:1px solid rgba(245,101,101,.3); }
+  .detection-info { background: rgba(26,32,44,0.9); color: #E2E8F0; padding: 15px; border-radius: 10px; margin-top: 15px; font-family: monospace; font-size: 14px; }
+  .confidence-bar { width: 100%; height: 20px; background: rgba(255,255,255,0.1); border-radius: 10px; overflow: hidden; margin: 10px 0; }
+  .confidence-fill { height: 100%; background: linear-gradient(90deg, #F56565 0%, #ED8936 50%, #48BB78 100%); transition: width 0.3s ease; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <h2>Face Recognition</h2>
+  <ul>
+    <li><a href="lecturer.html">Dashboard</a></li>
+    <li><a class="active" href="face_recognition.html">Live Attendance</a></li>
+    <li><a href="report.html">Attendance Report</a></li>
+  </ul>
+  <button class="logout-btn" onclick="window.location.href='index.html'">Logout</button>
+</div>
+
+<div class="main-content">
+  <div class="dashboard-header">
+    <h1>Automated Attendance Scanner</h1>
+    <p id="moduleInfo">Loading module information...</p>
+  </div>
+
+  <div class="camera-container">
+    <div class="camera-box">
+      <video id="videoElement" autoplay playsinline muted></video>
+      <canvas id="canvas"></canvas>
+    </div>
+    <div id="statusIndicator" class="status-indicator status-scanning">Initializing face system…</div>
+    
+    <div class="detection-info" id="detectionInfo" style="display:none;">
+      <div>Faces Detected: <span id="faceCount">0</span></div>
+      <div>Recognition Threshold: 55%</div>
+      <div>Current Confidence: <span id="currentConfidence">0%</span></div>
+      <div class="confidence-bar">
+        <div class="confidence-fill" id="confidenceBar" style="width: 0%;"></div>
+      </div>
+      <div>Registered Students: <span id="registeredCount">0</span></div>
+      <div>Attendance Recorded: <span id="attendanceCount">0</span></div>
+    </div>
+    
+    <div style="margin-top:12px;">
+      <button id="startCamera" class="btn btn-camera btn-start" disabled>Start Scanning</button>
+      <button id="stopCamera" class="btn btn-camera btn-stop" disabled>Stop Session</button>
+      <button id="toggleDebug" class="btn" onclick="toggleDebugInfo()">Show Debug Info</button>
+    </div>
+  </div>
+</div>
+
+<script defer src="https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/dist/face-api.min.js"></script>
+<script>
+const API_BASE = "http://localhost:3000/api";
+const video = document.getElementById('videoElement');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('statusIndicator');
+const startBtn = document.getElementById('startCamera');
+const stopBtn = document.getElementById('stopCamera');
+const detectionInfo = document.getElementById('detectionInfo');
+
+let stream = null, loopId = null, sessionActive = false, modelsLoaded = false;
+let matcher = null, labeled = [], recordedNos = new Set();
+let detectionStabilizer = new Map();
+let frameCount = 0;
+
+const currentModule = sessionStorage.getItem('currentModule');
+const lecturerName = sessionStorage.getItem('lecturerName');
+
+if (!currentModule || !lecturerName) {
+  alert('Session expired. Start a new session.');
+  window.location.href = 'start_session.html';
+}
+document.getElementById('moduleInfo').textContent = `Module: ${currentModule} | Lecturer: ${lecturerName}`;
+
+// --- Status helper ---
+function setStatus(text, type='scanning') {
+  statusEl.textContent = text;
+  statusEl.className = `status-indicator status-${type}`;
+}
+
+function updateDebugInfo(faceCount, confidence, registeredCount, attendanceCount) {
+  document.getElementById('faceCount').textContent = faceCount;
+  document.getElementById('currentConfidence').textContent = Math.round(confidence * 100) + '%';
+  document.getElementById('confidenceBar').style.width = (confidence * 100) + '%';
+  document.getElementById('registeredCount').textContent = registeredCount;
+  document.getElementById('attendanceCount').textContent = attendanceCount;
+}
+
+function toggleDebugInfo() {
+  const isVisible = detectionInfo.style.display !== 'none';
+  detectionInfo.style.display = isVisible ? 'none' : 'block';
+  document.getElementById('toggleDebug').textContent = isVisible ? 'Show Debug Info' : 'Hide Debug Info';
+}
+
+// --- Load face-api models with better error handling ---
+async function loadModels() {
+  try {
+    setStatus('Loading face recognition models…', 'scanning');
+    
+    // Wait for face-api library to load with timeout
+    let attempts = 0;
+    const maxAttempts = 100;
+    
+    while (!window.faceapi && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      attempts++;
+    }
+    
+    if (!window.faceapi) {
+      throw new Error('face-api.js library failed to load');
+    }
+    
+    console.log('📚 face-api.js library loaded successfully');
+    
+    // Load models with retries
+    attempts = 0;
+    const maxModelAttempts = 3;
+    
+    while (attempts < maxModelAttempts) {
+      try {
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights'),
+          faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights'),
+          faceapi.nets.faceRecognitionNet.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights')
+        ]);
+        
+        console.log('✅ All face-api models loaded successfully');
+        break;
+      } catch (modelError) {
+        attempts++;
+        console.warn(`Model loading attempt ${attempts} failed:`, modelError);
+        if (attempts >= maxModelAttempts) throw modelError;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    
+    modelsLoaded = true;
+    setStatus('Models loaded successfully ✓', 'success');
+    startBtn.disabled = false;
+    
+  } catch (e) {
+    console.error("Critical model loading error:", e);
+    setStatus('Failed to load face recognition models. Please refresh page.', 'error');
+  }
+}
+
+// --- IMPROVED: Better descriptor loading and validation ---
+async function buildLabeledDescriptors() {
+  labeled = [];
+  try {
+    setStatus('Loading registered students...', 'scanning');
+    const res = await fetch(`${API_BASE}/students`);
+    
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    }
+    
+    const students = await res.json();
+    console.log('📥 Loaded students:', students.length);
+    
+    // Debug: Log all available modules
+    const allModules = [...new Set(students.flatMap(s => s.modules || []))];
+    console.log('📋 Available modules in database:', allModules);
+    console.log('🔍 Looking for module:', currentModule);
+    
+    // Filter students for this module who have valid descriptors
+    const moduleStudents = students.filter(s => {
+      const hasModule = Array.isArray(s.modules) && s.modules.includes(currentModule);
+      const hasDescriptor = s.descriptor && Array.isArray(s.descriptor) && s.descriptor.length === 128;
+      
+      console.log(`👤 Student ${s.name}:`, {
+        modules: s.modules,
+        hasModule: hasModule,
+        hasDescriptor: hasDescriptor,
+        descriptorLength: s.descriptor ? s.descriptor.length : 0
+      });
+      
+      if (hasModule && !hasDescriptor) {
+        console.warn(`⚠️ Student ${s.name} enrolled in ${currentModule} but missing face descriptor`);
+      }
+      
+      return hasModule && hasDescriptor;
+    });
+    
+    console.log(`📊 Found ${moduleStudents.length} students with face descriptors for ${currentModule}`);
+    
+    if (moduleStudents.length === 0) {
+      setStatus(`No registered faces found for ${currentModule}. Register students first.`, 'error');
+      return false;
+    }
+
+    setStatus(`Processing ${moduleStudents.length} face descriptors...`, 'scanning');
+
+    // Build descriptors properly
+    for (const student of moduleStudents) {
+      try {
+        // Validate descriptor format
+        if (!Array.isArray(student.descriptor) || student.descriptor.length !== 128) {
+          console.error(`❌ Invalid descriptor for ${student.name}: length=${student.descriptor?.length}`);
+          continue;
+        }
+        
+        // Convert to Float32Array
+        const descriptor = new Float32Array(student.descriptor);
+        
+        // Validate descriptor values
+        const validDescriptor = Array.from(descriptor).every(val => 
+          typeof val === 'number' && !isNaN(val) && isFinite(val) && Math.abs(val) < 10
+        );
+        
+        if (!validDescriptor) {
+          console.error(`❌ Descriptor validation failed for ${student.name}`);
+          continue;
+        }
+        
+        labeled.push({ 
+          student: student, 
+          descriptor: descriptor 
+        });
+        
+        console.log(`✅ Loaded valid descriptor for ${student.name} (${student.studentNo})`);
+        
+      } catch (descriptorError) {
+        console.error(`❌ Error processing descriptor for ${student.name}:`, descriptorError);
+      }
+    }
+
+    if (labeled.length === 0) {
+      setStatus('No valid face descriptors loaded. Check student registrations.', 'error');
+      return false;
+    }
+
+    // Build face matcher with proper labels
+    try {
+      const labeledDescriptors = labeled.map(item => 
+        new faceapi.LabeledFaceDescriptors(
+          item.student.studentNo, // Use student number as label
+          [item.descriptor] // Array of descriptors
+        )
+      );
+      
+      // Use optimized threshold (matches debug version)
+      matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
+      
+      setStatus(`✅ Ready! Loaded ${labeled.length} face descriptors.`, 'success');
+      console.log(`🎯 Face matcher initialized with ${labeled.length} descriptors`);
+      
+      return true;
+      
+    } catch (matcherError) {
+      console.error('❌ Error creating face matcher:', matcherError);
+      setStatus('Error creating face matcher. Please try again.', 'error');
+      return false;
+    }
+    
+  } catch (err) {
+    console.error("❌ Error loading students:", err);
+    setStatus(`Failed to load students: ${err.message}`, 'error');
+    return false;
+  }
+}
+
+// --- IMPROVED: Better camera initialization ---
+async function startCamera() {
+  try {
+    setStatus('Starting camera...', 'scanning');
+    
+    // More specific camera constraints for better performance
+    const constraints = {
+      video: { 
+        width: { ideal: 640, max: 1280 },
+        height: { ideal: 480, max: 720 },
+        facingMode: 'user',
+        frameRate: { ideal: 15, max: 30 } // Lower framerate for better processing
+      }
+    };
+    
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = stream;
+    
+    // Wait for video to be ready
+    return new Promise((resolve, reject) => {
+      video.onloadedmetadata = () => {
+        video.play().then(() => {
+          // Set canvas dimensions to match video
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          
+          console.log(`📹 Camera started: ${video.videoWidth}x${video.videoHeight}`);
+          setStatus('Camera ready ✓', 'success');
+          resolve(true);
+        }).catch(reject);
+      };
+      
+      video.onerror = () => reject(new Error('Video playback failed'));
+      
+      // Timeout after 10 seconds
+      setTimeout(() => reject(new Error('Camera initialization timeout')), 10000);
+    });
+    
+  } catch(e) {
+    console.error("❌ Camera error:", e);
+    let errorMsg = 'Cannot access camera. ';
+    
+    if (e.name === 'NotAllowedError') {
+      errorMsg += 'Please allow camera access.';
+    } else if (e.name === 'NotFoundError') {
+      errorMsg += 'No camera found.';
+    } else if (e.name === 'NotSupportedError') {
+      errorMsg += 'Camera not supported.';
+    } else {
+      errorMsg += 'Please check camera settings.';
+    }
+    
+    setStatus(errorMsg, 'error');
+    return false;
+  }
+}
+
+function stopCamera() {
+  if (stream) {
+    stream.getTracks().forEach(track => {
+      track.stop();
+      console.log(`🛑 Stopped ${track.kind} track`);
+    });
+    stream = null;
+  }
+  video.srcObject = null;
+}
+
+// --- IMPROVED: Stable attendance recording with cooldown ---
+async function saveAttendanceHit(student, confidence) {
+  const studentNo = student.studentNo;
+  
+  // Prevent duplicate recordings within session
+  if (recordedNos.has(studentNo)) {
+    console.log(`⏭️ ${student.name} already recorded in this session`);
+    return;
+  }
+
+  recordedNos.add(studentNo);
+  
+  const now = new Date();
+  const date = now.toISOString().split('T')[0];
+  const startTime = now.toLocaleTimeString();
+  const confidencePercent = Math.round(confidence * 100);
+
+  console.log(`📝 Recording attendance: ${student.name} (${studentNo}) - ${confidencePercent}% confidence`);
+
+  try {
+    const response = await fetch(`${API_BASE}/students/${student.id}/attendance`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lecturer: lecturerName,
+        module: currentModule,
+        date: date,
+        startTime: startTime,
+        status: "Present",
+        mark: confidencePercent
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    console.log(`✅ Attendance saved for ${student.name}`);
+    setStatus(`✅ ${student.name} marked present (${confidencePercent}%)`, 'success');
+    
+    // Update attendance counter
+    updateDebugInfo(0, confidence, labeled.length, recordedNos.size);
+    
+    // Reset status after 3 seconds
+    setTimeout(() => {
+      if (sessionActive) setStatus('Scanning for faces...', 'scanning');
+    }, 3000);
+    
+  } catch (err) {
+    console.error("❌ Failed to save attendance:", err);
+    setStatus(`Failed to record ${student.name}: ${err.message}`, 'error');
+    
+    // Remove from recorded set so they can try again
+    recordedNos.delete(studentNo);
+  }
+}
+
+// --- IMPROVED: More stable detection with frame averaging ---
+async function detectLoop() {
+  if (!sessionActive || !video || video.readyState !== 4) return;
+
+  frameCount++;
+  
+  try {
+    // Skip frames for better performance (process every 3rd frame)
+    if (frameCount % 3 !== 0) {
+      loopId = requestAnimationFrame(detectLoop);
+      return;
+    }
+
+    // Improved detection options (matches debug version)
+    const detectionOptions = new faceapi.TinyFaceDetectorOptions({ 
+      inputSize: 320, 
+      scoreThreshold: 0.4
+    });
+    
+    const detections = await faceapi.detectAllFaces(video, detectionOptions)
+      .withFaceLandmarks()
+      .withFaceDescriptors();
+
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Update debug info
+    updateDebugInfo(detections.length, 0, labeled.length, recordedNos.size);
+
+    if (detections.length === 0) {
+      // Clear stabilizer when no faces detected
+      detectionStabilizer.clear();
+      loopId = requestAnimationFrame(detectLoop);
+      return;
+    }
+
+    for (const detection of detections) {
+      const { x, y, width, height } = detection.detection.box;
+      
+      // Draw face box with better styling
+      ctx.strokeStyle = '#48BB78';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x, y, width, height);
+      
+      // Draw corner markers for better visibility
+      const cornerSize = 20;
+      ctx.lineWidth = 4;
+      
+      // Top-left corner
+      ctx.beginPath();
+      ctx.moveTo(x, y + cornerSize);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x + cornerSize, y);
+      ctx.stroke();
+      
+      // Top-right corner  
+      ctx.beginPath();
+      ctx.moveTo(x + width - cornerSize, y);
+      ctx.lineTo(x + width, y);
+      ctx.lineTo(x + width, y + cornerSize);
+      ctx.stroke();
+      
+      // Bottom-left corner
+      ctx.beginPath();
+      ctx.moveTo(x, y + height - cornerSize);
+      ctx.lineTo(x, y + height);
+      ctx.lineTo(x + cornerSize, y + height);
+      ctx.stroke();
+      
+      // Bottom-right corner
+      ctx.beginPath();
+      ctx.moveTo(x + width - cornerSize, y + height);
+      ctx.lineTo(x + width, y + height);
+      ctx.lineTo(x + width, y + height - cornerSize);
+      ctx.stroke();
+
+      let label = 'UNKNOWN';
+      let confidence = 0;
+
+      if (matcher && detection.descriptor) {
+        const bestMatch = matcher.findBestMatch(detection.descriptor);
+        
+        console.log(`🔍 Match result: ${bestMatch.label}, distance: ${bestMatch.distance.toFixed(3)}`);
+        
+        if (bestMatch.label !== 'unknown') {
+          confidence = Math.max(0, 1 - bestMatch.distance);
+          
+          console.log(`🎯 Recognition confidence: ${(confidence * 100).toFixed(1)}%`);
+          
+          // FAST PATH: Immediate recognition for very high confidence matches
+          if (confidence > 0.6) { // Very high confidence - immediate recognition
+            const foundStudent = labeled.find(l => l.student.studentNo === bestMatch.label);
+            if (foundStudent) {
+              label = foundStudent.student.name;
+              
+              console.log(`⚡ FAST recognition: ${label} with ${(confidence * 100).toFixed(1)}% confidence`);
+              
+              // Record attendance immediately for high confidence
+              await saveAttendanceHit(foundStudent.student, confidence);
+              
+              // Skip stabilization for this detection
+              continue; // Move to next detection
+            }
+          }
+          
+          // NORMAL PATH: Use stabilizer for moderate confidence recognition
+          const stabilizerId = `${x.toFixed(0)}_${y.toFixed(0)}`;
+          
+          if (!detectionStabilizer.has(stabilizerId)) {
+            detectionStabilizer.set(stabilizerId, { 
+              matches: [], 
+              lastSeen: Date.now() 
+            });
+          }
+          
+          const stabilizer = detectionStabilizer.get(stabilizerId);
+          stabilizer.matches.push({ label: bestMatch.label, confidence });
+          stabilizer.lastSeen = Date.now();
+          
+          // Keep only recent matches (last 2 seconds)
+          stabilizer.matches = stabilizer.matches.filter(match => 
+            Date.now() - stabilizer.lastSeen < 2000
+          );
+          
+          // Require multiple consistent matches for recognition
+          const minMatches = 2;
+          const consistentMatches = stabilizer.matches.filter(match => 
+            match.label === bestMatch.label && match.confidence > 0.4
+          );
+          
+          if (consistentMatches.length >= minMatches) {
+            const avgConfidence = consistentMatches.reduce((sum, match) => 
+              sum + match.confidence, 0) / consistentMatches.length;
+            
+            // Use threshold from debug version (was 0.45, debug used lower)
+            if (avgConfidence > 0.5) {
+              const foundStudent = labeled.find(l => l.student.studentNo === bestMatch.label);
+              if (foundStudent) {
+                label = foundStudent.student.name;
+                confidence = avgConfidence;
+                
+                console.log(`✅ Stable recognition: ${label} with ${(confidence * 100).toFixed(1)}% confidence`);
+                
+                // Record attendance with stable recognition
+                await saveAttendanceHit(foundStudent.student, confidence);
+                
+                // Clear this detection to prevent immediate re-recording
+                detectionStabilizer.delete(stabilizerId);
+              }
+            }
+          }
+        }
+      }
+
+      // Draw label with better formatting
+      ctx.fillStyle = label === 'UNKNOWN' ? '#F56565' : '#48BB78';
+      ctx.font = 'bold 16px Arial';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      
+      const text = `${label} ${confidence > 0 ? `(${Math.round(confidence*100)}%)` : ''}`;
+      const textMetrics = ctx.measureText(text);
+      const textX = x + 5;
+      const textY = y - 10;
+      
+      // Draw text background
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(textX - 3, textY - 20, textMetrics.width + 6, 25);
+      
+      // Draw text
+      ctx.strokeText(text, textX, textY);
+      ctx.fillStyle = label === 'UNKNOWN' ? '#F56565' : '#48BB78';
+      ctx.fillText(text, textX, textY);
+      
+      // Update debug confidence
+      updateDebugInfo(detections.length, confidence, labeled.length, recordedNos.size);
+    }
+
+    // Clean up old detections from stabilizer
+    const currentTime = Date.now();
+    for (const [key, data] of detectionStabilizer.entries()) {
+      if (currentTime - data.lastSeen > 5000) { // 5 seconds timeout
+        detectionStabilizer.delete(key);
+      }
+    }
+
+  } catch (error) {
+    console.error("❌ Detection loop error:", error);
+    // Don't stop the loop on individual errors
+  }
+
+  loopId = requestAnimationFrame(detectLoop);
+}
+
+// --- Button events ---
+startBtn.addEventListener('click', async () => {
+  if (!modelsLoaded) {
+    setStatus('Face recognition models not ready. Please wait...', 'error');
+    return;
+  }
+  
+  startBtn.disabled = true; 
+  stopBtn.disabled = false;
+  
+  const cameraOk = await startCamera();
+  if (!cameraOk) { 
+    startBtn.disabled = false; 
+    stopBtn.disabled = true; 
+    return; 
+  }
+  
+  const descriptorsOk = await buildLabeledDescriptors();
+  if (!descriptorsOk) {
+    setStatus('No registered faces available for recognition. Register students first.', 'error');
+    startBtn.disabled = false; 
+    stopBtn.disabled = true;
+    stopCamera();
+    return;
+  }
+  
+  sessionActive = true;
+  recordedNos.clear();
+  detectionStabilizer.clear();
+  frameCount = 0;
+  
+  setStatus('🔍 Scanning for faces...', 'scanning');
+  console.log('🚀 Face recognition session started');
+  
+  loopId = requestAnimationFrame(detectLoop);
+});
+
+stopBtn.addEventListener('click', () => {
+  console.log('🛑 Stopping face recognition session');
+  
+  sessionActive = false;
+  if (loopId) cancelAnimationFrame(loopId);
+  stopCamera();
+  
+  startBtn.disabled = false; 
+  stopBtn.disabled = true;
+  
+  setStatus(`Session stopped. Recorded ${recordedNos.size} students.`, 'scanning');
+  recordedNos.clear();
+  detectionStabilizer.clear();
+  
+  // Hide debug info
+  detectionInfo.style.display = 'none';
+  document.getElementById('toggleDebug').textContent = 'Show Debug Info';
+});
+
+// --- Initialization ---
+(async function initialize() {
+  console.log('🚀 Initializing Face Recognition System...');
+  await loadModels();
+})();
+
+// --- Cleanup ---
+window.addEventListener('beforeunload', () => {
+  console.log('🧹 Cleaning up face recognition session...');
+  sessionActive = false;
+  if (loopId) cancelAnimationFrame(loopId);
+  stopCamera();
+});
+
+// --- Auto-cleanup detection stabilizer ---
+setInterval(() => {
+  const currentTime = Date.now();
+  let cleaned = 0;
+  for (const [key, data] of detectionStabilizer.entries()) {
+    if (currentTime - data.lastSeen > 10000) { // 10 seconds
+      detectionStabilizer.delete(key);
+      cleaned++;
+    }
+  }
+  if (cleaned > 0) {
+    console.log(`🧹 Cleaned ${cleaned} stale detection records`);
+  }
+}, 30000); // Run every 30 seconds
+</script>
+</body>
+</html>
